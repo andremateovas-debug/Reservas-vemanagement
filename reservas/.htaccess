@@ -1,0 +1,10 @@
+# =====================================================
+# /reservas/.htaccess
+# =====================================================
+
+Options -Indexes
+
+<FilesMatch "\.(env|log|sql|bak|sh)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

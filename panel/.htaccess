@@ -1,0 +1,15 @@
+# =====================================================
+# /panel/.htaccess
+# =====================================================
+
+Options -Indexes
+
+<FilesMatch "\.(env|log|sql|bak|sh|errorlog)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<Files "php_errorlog">
+    Order allow,deny
+    Deny from all
+</Files>
