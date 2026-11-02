@@ -17,66 +17,90 @@ if (!defined('SITE_TIMEZONE')) {
 }
 date_default_timezone_set(SITE_TIMEZONE);
 
+// MAX_PERSONAS es la fuente de verdad del servidor.
+// El formulario público y procesar_reserva.php deben usar esta constante.
 define('MAX_PERSONAS', 12);
 define('HORARIO_APERTURA', '07:30:00');
 define('HORARIO_CIERRE', '22:30:00');
 
+// Política de contraseñas para administradores
+define('PASSWORD_MIN_LENGTH', 10);
+
+// ─────────────────────────────────────────────────────────────
+// Inicialización segura de sesión
+// Incluir security.php antes de session_start()
+// ─────────────────────────────────────────────────────────────
+require_once __DIR__ . '/security.php';
+
 if (session_status() === PHP_SESSION_NONE) {
+    configurarSesionSegura();
     session_start();
 }
 
-function conectarDB() {
+// ─────────────────────────────────────────────────────────────
+// Conexiones a base de datos
+// ─────────────────────────────────────────────────────────────
+
+function conectarDB(): mysqli
+{
     $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
 
     if ($conn->connect_error) {
-        die("Error de conexión a la base de datos: " . $conn->connect_error);
+        error_log('Error de conexión a la base de datos: ' . $conn->connect_error);
+        // No exponer detalles en producción
+        die('Error de conexión a la base de datos. Contacta al administrador.');
     }
 
-    $conn->set_charset("utf8mb4");
+    $conn->set_charset('utf8mb4');
     $conn->query("SET time_zone = 'America/Mazatlan'");
     return $conn;
 }
 
-function conectarPDO() {
+function conectarPDO(): PDO
+{
     try {
-        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-        $pdo = new PDO($dsn, DB_USER, DB_PASS);
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
+        $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ]);
         return $pdo;
     } catch (PDOException $e) {
-        die("Error de conexión PDO: " . $e->getMessage());
+        error_log('Error de conexión PDO: ' . $e->getMessage());
+        die('Error de conexión a la base de datos. Contacta al administrador.');
     }
 }
 
-function verificarLoginAdmin() {
-    if (!isset($_SESSION['admin_id'])) {
-        if (strpos($_SERVER['PHP_SELF'], '/api/') !== false) {
-            header('Content-Type: application/json');
-            http_response_code(401);
-            echo json_encode(['error' => 'No autenticado']);
-            exit;
-        } else {
-            header('Location: ' . SITE_URL . '/panel/login_panel.php');
-            exit;
-        }
-    }
+// ─────────────────────────────────────────────────────────────
+// Helpers de usuario autenticado
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * @deprecated Usar requireAuth() de security.php
+ * Mantenido para compatibilidad hacia atrás.
+ */
+function verificarLoginAdmin(): void
+{
+    requireAuth();
 }
 
-function obtenerUsuarioActual() {
+function obtenerUsuarioActual(): ?array
+{
     if (isset($_SESSION['admin_id'])) {
         return [
             'id'      => $_SESSION['admin_id'],
             'usuario' => $_SESSION['admin_usuario'] ?? '',
-            'email'   => $_SESSION['admin_email'] ?? '',
-            'nombre'  => $_SESSION['admin_nombre'] ?? '',
-            'rol'     => $_SESSION['admin_rol'] ?? 'recepcion'
+            'email'   => $_SESSION['admin_email']   ?? '',
+            'nombre'  => $_SESSION['admin_nombre']  ?? '',
+            'rol'     => $_SESSION['admin_rol']     ?? 'recepcion',
         ];
     }
     return null;
 }
 
-function obtenerEstadisticasRapidas($conn) {
+function obtenerEstadisticasRapidas(mysqli $conn): array
+{
     $sql = "SELECT
                 COUNT(*) as total_hoy,
                 SUM(CASE WHEN estado = 'pendiente'  AND fecha = CURDATE() THEN 1 ELSE 0 END) as pendientes_hoy,
@@ -87,9 +111,9 @@ function obtenerEstadisticasRapidas($conn) {
 
     $result = $conn->query($sql);
     return $result ? $result->fetch_assoc() : [
-        'total_hoy'      => 0,
-        'pendientes_hoy' => 0,
-        'confirmadas_hoy'=> 0,
-        'canceladas_hoy' => 0
+        'total_hoy'       => 0,
+        'pendientes_hoy'  => 0,
+        'confirmadas_hoy' => 0,
+        'canceladas_hoy'  => 0,
     ];
 }

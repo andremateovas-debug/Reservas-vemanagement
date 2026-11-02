@@ -1,20 +1,27 @@
 <?php
+header('Content-Type: application/json; charset=utf-8');
 require_once '../config_api.php';
-verificarAutenticacion();
 
-$id = $_GET['id'] ?? null;
+requirePermission('reservas.ver');
 
-if (!$id) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Falta el ID de la reserva']);
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Método no permitido']);
     exit;
 }
 
-$conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+$id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 
-$sql  = "SELECT * FROM reservas WHERE id = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $id);
+if (!$id || $id < 1) {
+    http_response_code(400);
+    echo json_encode(['error' => 'ID de reserva inválido']);
+    exit;
+}
+
+$conn = conectarDB();
+
+$stmt = $conn->prepare('SELECT * FROM reservas WHERE id = ? LIMIT 1');
+$stmt->bind_param('i', $id);
 $stmt->execute();
 $result = $stmt->get_result();
 

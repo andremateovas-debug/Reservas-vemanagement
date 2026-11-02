@@ -1,16 +1,16 @@
 <?php
-session_start();
 require_once '../config/config.php';
 
-if (!isset($_SESSION['admin_id']) || ($_SESSION['admin_rol'] ?? '') !== 'admin') {
-    header('Location: login_panel.php');
-    exit;
-}
+emitirCabecerasSeguridad();
+requireRole(['admin']); // Solo administradores pueden crear usuarios
 
 $mensaje = '';
 $error   = '';
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!validarCsrf()) {
+        $error = 'Solicitud no válida. Por favor recarga la página.';
+    } else {
     $usuario          = trim($_POST['usuario']          ?? '');
     $email            = trim($_POST['email']            ?? '');
     $password         = $_POST['password']         ?? '';
@@ -18,14 +18,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $nombre           = trim($_POST['nombre']           ?? '');
     $rol              = $_POST['rol'] ?? 'recepcion';
 
+    // Validar rol permitido
+    $rolesValidos = ['admin', 'supervisor', 'recepcion'];
+    if (!in_array($rol, $rolesValidos, true)) {
+        $rol = 'recepcion';
+    }
+
     if (empty($usuario) || empty($email) || empty($password) || empty($nombre)) {
         $error = 'Todos los campos son obligatorios';
     } elseif ($password !== $confirm_password) {
-        $error = 'Las contrasenas no coinciden';
-    } elseif (strlen($password) < 6) {
-        $error = 'La contrasena debe tener al menos 6 caracteres';
+        $error = 'Las contraseñas no coinciden';
+    } elseif (strlen($password) < PASSWORD_MIN_LENGTH) {
+        $error = 'La contraseña debe tener al menos ' . PASSWORD_MIN_LENGTH . ' caracteres';
+    } elseif (!preg_match('/[A-Z]/', $password) || !preg_match('/[a-z]/', $password) || !preg_match('/\d/', $password)) {
+        $error = 'La contraseña debe contener mayúsculas, minúsculas y números';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = 'Email no valido';
+        $error = 'Email no válido';
     } else {
         $conn = conectarDB();
 
@@ -51,8 +59,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if ($stmt_insert->execute()) {
                 $mensaje  = 'Administrador creado exitosamente';
                 $usuario  = $email = $nombre = '';
+                $rol      = 'recepcion';
             } else {
-                $error = 'Error al crear el administrador: ' . $conn->error;
+                error_log('Error al crear administrador: ' . $conn->error);
+                $error = 'Error al crear el administrador';
             }
 
             $stmt_insert->close();
@@ -60,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         $conn->close();
     }
+    } // fin else validarCsrf
 }
 ?>
 <!DOCTYPE html>
@@ -171,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         <?php endif; ?>
 
         <form method="POST" action="">
+            <?= csrfField() ?>
             <div class="form-group">
                 <label for="usuario">Usuario *</label>
                 <input type="text" id="usuario" name="usuario"
@@ -226,7 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if (password.length === 0) { strengthDiv.innerHTML = ''; return; }
 
             let strength = 0;
-            if (password.length >= 6) strength++;
+            if (password.length >= <?= PASSWORD_MIN_LENGTH ?>) strength++;
             if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
             if (password.match(/\d/)) strength++;
             if (password.match(/[^a-zA-Z\d]/)) strength++;

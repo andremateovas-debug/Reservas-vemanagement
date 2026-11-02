@@ -151,6 +151,8 @@ Zonas comunes para México:
 
 Accede directamente a `tudominio.com/panel/crear_admin.php` la primera vez. Crea un usuario con rol `admin`. A partir de ahí, todos los usuarios adicionales se crean desde el panel.
 
+> **Política de contraseñas:** mínimo 10 caracteres, con mayúsculas, minúsculas y números (configurable con `PASSWORD_MIN_LENGTH` en `config.php`).
+
 ### 6. Verificar correos
 
 El sistema usa la función nativa `mail()` de PHP. En la mayoría de hostings compartidos con cPanel funciona directamente. Si los correos no llegan:
@@ -216,13 +218,21 @@ El dashboard incluye un drawer lateral accesible desde el botón **HISTORIAL** e
 
 - Prepared statements en todas las queries (sin concatenación de SQL)
 - `password_hash()` / `password_verify()` para contraseñas de administradores
-- `htmlspecialchars()` en todos los outputs al HTML
+- Escape contextual `htmlspecialchars(ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')` en todos los outputs HTML
 - `display_errors = 0` en producción (errores solo al log del servidor)
-- `Content-Type: application/json` al inicio de todos los endpoints AJAX antes de cualquier output
-- Verificación de `$_SESSION['admin_id']` en cada archivo del panel y la API
-- Guard de rol `admin` en `crear_admin.php`
-- `.htaccess` en `/panel/` y `/reservas/` bloqueando listado de directorio y archivos `.env`, `.log`, `.sql`, `.bak`, `.sh`
+- Tokens CSRF criptográficamente seguros (`random_bytes(32)`) en todos los endpoints que modifican datos
+- `session_regenerate_id(true)` después del login (previene Session Fixation)
+- Cookies de sesión: `HttpOnly`, `Secure` (en HTTPS), `SameSite=Lax`
+- Expiración de sesión por inactividad (2 horas)
+- Rate limiting de intentos de login (5 intentos, bloqueo 15 min)
+- Sistema centralizado de autorización por roles con `requirePermission()` en cada endpoint
+- Protección anti-duplicado de penalizaciones (verifica transición de estado)
+- Transacciones con `FOR UPDATE` para prevenir doble reserva concurrente
+- Cabeceras HTTP de seguridad: `X-Content-Type-Options`, `X-Frame-Options`, `CSP`, etc.
+- `.htaccess` en `/panel/` y `/reservas/` bloqueando listado y archivos sensibles
 - Whitelist de horas válidas en `check_availability.php` antes de consultar la BD
+
+Ver [`SECURITY.md`](SECURITY.md) para detalles completos y política de vulnerabilidades.
 
 ---
 

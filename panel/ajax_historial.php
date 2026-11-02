@@ -1,13 +1,8 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
-
-session_start();
 require_once '../config/config.php';
 
-if (!isset($_SESSION['admin_id'])) {
-    echo json_encode([]);
-    exit;
-}
+requirePermission('historial.ver');
 
 $conn = conectarDB();
 if (!$conn) {

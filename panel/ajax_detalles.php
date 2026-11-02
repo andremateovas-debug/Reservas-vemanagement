@@ -1,12 +1,7 @@
 <?php
-session_start();
 require_once '../config/config.php';
 
-if (!isset($_SESSION['admin_id'])) {
-    http_response_code(401);
-    echo '<p>No autorizado</p>';
-    exit;
-}
+requirePermission('reservas.ver');
 
 $id = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
 if (!$id) {

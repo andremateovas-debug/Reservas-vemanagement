@@ -1,7 +1,9 @@
 <?php
-session_start();
 require_once '../config/config.php';
 
+emitirCabecerasSeguridad();
+
+// Si ya está autenticado, redirigir al panel
 if (isset($_SESSION['admin_id'])) {
     header('Location: panel_reservas.php');
     exit;
@@ -9,50 +11,74 @@ if (isset($_SESSION['admin_id'])) {
 
 $error = '';
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $usuario  = trim($_POST['usuario']  ?? '');
-    $password = $_POST['password'] ?? '';
-
-    if (empty($usuario) || empty($password)) {
-        $error = 'Usuario y contrasena son requeridos';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Validar CSRF (protección contra ataques automatizados al formulario)
+    if (!validarCsrf()) {
+        $error = 'Solicitud no válida. Por favor recarga la página.';
     } else {
-        $conn = conectarDB();
+        $usuario  = trim($_POST['usuario']  ?? '');
+        $password = $_POST['password'] ?? '';
 
-        $sql  = "SELECT id, usuario, password_hash, nombre, email, rol
-                 FROM usuarios_admin
-                 WHERE (usuario = ? OR email = ?) AND activo = 1";
-
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("ss", $usuario, $usuario);
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        if ($result->num_rows === 1) {
-            $admin = $result->fetch_assoc();
-
-            if (password_verify($password, $admin['password_hash'])) {
-                $_SESSION['admin_id']      = $admin['id'];
-                $_SESSION['admin_usuario'] = $admin['usuario'];
-                $_SESSION['admin_email']   = $admin['email'];
-                $_SESSION['admin_nombre']  = $admin['nombre'];
-                $_SESSION['admin_rol']     = $admin['rol'];
-
-                $update_sql  = "UPDATE usuarios_admin SET ultimo_login = NOW() WHERE id = ?";
-                $update_stmt = $conn->prepare($update_sql);
-                $update_stmt->bind_param("i", $admin['id']);
-                $update_stmt->execute();
-
-                header('Location: panel_reservas.php');
-                exit;
-            } else {
-                $error = 'Credenciales incorrectas';
-            }
+        if (empty($usuario) || empty($password)) {
+            $error = 'Usuario y contraseña son requeridos';
         } else {
-            $error = 'Credenciales incorrectas';
-        }
+            // Verificar rate limiting ANTES de consultar la BD
+            $segundosBloqueado = loginBloqueado($usuario);
 
-        $stmt->close();
-        $conn->close();
+            if ($segundosBloqueado > 0) {
+                $minutos = (int)ceil($segundosBloqueado / 60);
+                $error   = "Demasiados intentos fallidos. Intenta de nuevo en {$minutos} minuto(s).";
+            } else {
+                $conn = conectarDB();
+
+                $sql  = "SELECT id, usuario, password_hash, nombre, email, rol
+                         FROM usuarios_admin
+                         WHERE (usuario = ? OR email = ?) AND activo = 1
+                         LIMIT 1";
+
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param('ss', $usuario, $usuario);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $admin  = $result->num_rows === 1 ? $result->fetch_assoc() : null;
+                $stmt->close();
+                $conn->close();
+
+                // Verificación en tiempo constante para evitar user enumeration
+                if ($admin && password_verify($password, $admin['password_hash'])) {
+                    // Login exitoso
+
+                    // Limpiar intentos fallidos
+                    limpiarIntentosFallidos($usuario);
+
+                    // Regenerar ID de sesión para prevenir session fixation
+                    session_regenerate_id(true);
+
+                    $_SESSION['admin_id']       = $admin['id'];
+                    $_SESSION['admin_usuario']  = $admin['usuario'];
+                    $_SESSION['admin_email']    = $admin['email'];
+                    $_SESSION['admin_nombre']   = $admin['nombre'];
+                    $_SESSION['admin_rol']      = $admin['rol'];
+                    $_SESSION['_last_activity'] = time();
+
+                    // Actualizar último login en BD
+                    $conn2        = conectarDB();
+                    $update_stmt  = $conn2->prepare('UPDATE usuarios_admin SET ultimo_login = NOW() WHERE id = ?');
+                    $update_stmt->bind_param('i', $admin['id']);
+                    $update_stmt->execute();
+                    $update_stmt->close();
+                    $conn2->close();
+
+                    header('Location: panel_reservas.php');
+                    exit;
+                } else {
+                    // Registrar intento fallido (sin distinguir si usuario existe)
+                    registrarIntentoFallido($usuario);
+                    // Mensaje genérico — no revela si el usuario existe
+                    $error = 'Credenciales incorrectas';
+                }
+            }
+        }
     }
 }
 ?>
@@ -134,28 +160,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 </head>
 <body>
     <div class="login-container">
-        <h1>Panel de Administracion</h1>
+        <h1>Panel de Administración</h1>
         <p class="subtitle">Sistema de Reservas</p>
 
         <?php if ($error): ?>
-            <div class="error"><?php echo htmlspecialchars($error); ?></div>
+            <div class="error"><?= h($error) ?></div>
         <?php endif; ?>
 
-        <form method="POST" action="">
+        <form method="POST" action="" autocomplete="off">
+            <?= csrfField() ?>
             <div class="form-group">
                 <label for="usuario">Usuario o Email</label>
                 <input type="text" id="usuario" name="usuario"
-                       value="<?php echo htmlspecialchars($usuario ?? ''); ?>" required autofocus>
+                       value="<?= h($usuario ?? '') ?>"
+                       required autofocus autocomplete="username">
             </div>
             <div class="form-group">
-                <label for="password">Contrasena</label>
-                <input type="password" id="password" name="password" required>
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password"
+                       required autocomplete="current-password">
             </div>
-            <button type="submit">Iniciar Sesion</button>
+            <button type="submit">Iniciar Sesión</button>
         </form>
 
         <div class="back-link">
-            <a href="../index.html">Volver al sitio principal</a>
+            <a href="<?= h(SITE_URL) ?>">Volver al sitio principal</a>
         </div>
     </div>
 </body>

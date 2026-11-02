@@ -1,11 +1,24 @@
 <?php
+header('Content-Type: application/json; charset=utf-8');
 require_once 'config_api.php';
-verificarAutenticacion();
 
-$conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+requirePermission('reservas.ver');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Método no permitido']);
+    exit;
+}
+
+$conn = conectarDB();
 
 $filtro           = $_GET['filtro'] ?? 'hoy';
-$fecha_especifica = $_GET['fecha']  ?? null;
+$fecha_especifica = trim($_GET['fecha'] ?? '');
+
+// Validar formato de fecha especifica
+if ($fecha_especifica !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha_especifica)) {
+    $fecha_especifica = '';
+}
 
 switch ($filtro) {
     case 'hoy':
@@ -15,7 +28,7 @@ switch ($filtro) {
         $fecha = date('Y-m-d', strtotime('+1 day'));
         break;
     case 'fecha':
-        $fecha = $fecha_especifica ? $fecha_especifica : date('Y-m-d');
+        $fecha = !empty($fecha_especifica) ? $fecha_especifica : date('Y-m-d');
         break;
     default:
         $fecha = date('Y-m-d');

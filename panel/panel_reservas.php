@@ -1,22 +1,24 @@
 <?php
-session_start();
 require_once '../config/config.php';
 
-if (!isset($_SESSION['admin_id'])) {
-    header('Location: login_panel.php');
-    exit;
-}
+emitirCabecerasSeguridad();
+requirePermission('panel.acceso');
 
 $conn = conectarDB();
 
-$sql_autocompletar = "UPDATE reservas
-                      SET estado = 'completada'
-                      WHERE estado = 'confirmada'
-                      AND TIMESTAMP(fecha, hora) < NOW()";
-$conn->query($sql_autocompletar);
+// NOTA DE SEGURIDAD: Se eliminó el auto-completar automático (Hallazgo G).
+// Las reservas vencidas NO se marcan como completadas automáticamente porque:
+// 1. No se puede saber si el cliente asistió realmente.
+// 2. Impediría registrar el importe cobrado.
+// El personal debe completarlas manualmente desde el panel.
 
 $filtro           = $_GET['filtro'] ?? 'hoy';
-$fecha_especifica = $_GET['fecha']  ?? '';
+$fecha_especifica = trim($_GET['fecha'] ?? '');
+
+// Validar formato de fecha para evitar XSS reflejado (Hallazgo A2)
+if ($fecha_especifica !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha_especifica)) {
+    $fecha_especifica = '';
+}
 
 $where       = "";
 $params      = [];
@@ -675,7 +677,7 @@ $conn->close();
             <a href="?filtro=manana" class="filtro-btn <?php echo $filtro === 'manana' ? 'active' : ''; ?>">Manana</a>
             <a href="?filtro=semana" class="filtro-btn <?php echo $filtro === 'semana' ? 'active' : ''; ?>">Esta semana</a>
             <div class="fecha-custom">
-                <input type="date" id="fechaEspecifica" value="<?php echo $fecha_especifica; ?>">
+                <input type="date" id="fechaEspecifica" value="<?php echo h($fecha_especifica); ?>">
                 <button class="filtro-btn" onclick="irAFecha()">Buscar</button>
             </div>
         </div>
@@ -799,6 +801,9 @@ $conn->close();
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/locales/es.js"></script>
     <script>
+        // Token CSRF para peticiones AJAX (enviado como header X-CSRF-Token)
+        const CSRF_TOKEN = <?= jsonSafe(csrfToken()) ?>;
+
         let calendar;
         let reservaActualId = null;
         let accionActual    = null;
@@ -894,7 +899,11 @@ $conn->close();
             formData.append('estado',          accionActual);
             formData.append('comentario_admin',comentario);
 
-            fetch('ajax_cambiar_estado.php', { method: 'POST', body: formData })
+            fetch('ajax_cambiar_estado.php', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': CSRF_TOKEN },
+                body: formData
+            })
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
@@ -942,7 +951,11 @@ $conn->close();
             formData.append('reserva_id', reservaActualId);
             formData.append('total', total);
 
-            fetch('ajax_completar_reserva.php', { method: 'POST', body: formData })
+            fetch('ajax_completar_reserva.php', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': CSRF_TOKEN },
+                body: formData
+            })
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {

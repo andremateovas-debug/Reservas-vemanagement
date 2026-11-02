@@ -1,17 +1,23 @@
 <?php
+header('Content-Type: application/json; charset=utf-8');
 require_once 'config_api.php';
-verificarAutenticacion();
 
-$conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+requirePermission('reservas.ver');
 
-if ($conn->connect_error) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Error de conexión']);
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Método no permitido']);
     exit;
 }
 
-$start = $_GET['start'] ?? date('Y-m-01');
-$end   = $_GET['end']   ?? date('Y-m-t');
+$start_raw = trim($_GET['start'] ?? date('Y-m-01'));
+$end_raw   = trim($_GET['end']   ?? date('Y-m-t'));
+
+// Validar formato de fechas para evitar inyección
+$start = preg_match('/^\d{4}-\d{2}-\d{2}/', $start_raw) ? substr($start_raw, 0, 10) : date('Y-m-01');
+$end   = preg_match('/^\d{4}-\d{2}-\d{2}/', $end_raw)   ? substr($end_raw, 0, 10)   : date('Y-m-t');
+
+$conn = conectarDB();
 
 $sql = "SELECT
             id,

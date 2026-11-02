@@ -1,11 +1,8 @@
 <?php
-session_start();
 require_once '../config/config.php';
 
-if (!isset($_SESSION['admin_id'])) {
-    header('Location: login_panel.php');
-    exit;
-}
+emitirCabecerasSeguridad();
+requirePermission('correos.enviar');
 
 $conn = conectarDB();
 
@@ -45,6 +42,14 @@ $msg_resultado = '';
 $msg_tipo      = 'ok';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Validar CSRF
+    if (!validarCsrf()) {
+        $msg_resultado = 'Solicitud no válida. Por favor recarga la página.';
+        $msg_tipo      = 'err';
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($msg_resultado)) {
     $modo   = $_POST['modo']    ?? '';
     $asunto = trim($_POST['asunto']  ?? 'Mensaje de ' . SITE_NAME);
     $texto  = trim($_POST['mensaje'] ?? '');
@@ -96,20 +101,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-function enviarCorreoConNota($r, $asunto, $texto, $libre = false) {
-    $txt_html = nl2br(htmlspecialchars($texto, ENT_QUOTES, 'UTF-8'));
+function enviarCorreoConNota(array $r, string $asunto, string $texto, bool $libre = false): bool
+{
+    // Escape contextual correcto de todos los datos del cliente (Hallazgo I)
+    $nombre_safe = htmlspecialchars($r['nombre'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $txt_html    = nl2br(htmlspecialchars($texto, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+    $asunto_safe = htmlspecialchars($asunto, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
     $bloque_reserva = '';
     if (!$libre && !empty($r['fecha'])) {
-        $fecha_fmt = date('d/m/Y', strtotime($r['fecha']));
-        $hora_fmt  = substr($r['hora'], 0, 5) . ' hrs';
+        $fecha_fmt   = date('d/m/Y', strtotime($r['fecha']));
+        $hora_fmt    = htmlspecialchars(substr($r['hora'], 0, 5), ENT_QUOTES, 'UTF-8') . ' hrs';
+        $personas    = (int)($r['personas'] ?? 0);
+        $id_reserva  = (int)($r['id'] ?? 0);
+
         $bloque_reserva = "
         <div style='background:#f8f9fa; padding:15px; margin:20px 0;'>
             <h3 style='margin:0 0 10px;'>Detalles de tu reserva:</h3>
-            <p style='margin:4px 0;'><strong>ID:</strong> #{$r['id']}</p>
-            <p style='margin:4px 0;'><strong>Fecha:</strong> $fecha_fmt</p>
+            <p style='margin:4px 0;'><strong>ID:</strong> #" . $id_reserva . "</p>
+            <p style='margin:4px 0;'><strong>Fecha:</strong> " . htmlspecialchars($fecha_fmt, ENT_QUOTES, 'UTF-8') . "</p>
             <p style='margin:4px 0;'><strong>Hora:</strong> $hora_fmt</p>
-            <p style='margin:4px 0;'><strong>Personas:</strong> {$r['personas']}</p>
+            <p style='margin:4px 0;'><strong>Personas:</strong> $personas</p>
             <p style='margin:4px 0;'><strong>Estado:</strong>
                 <span style='background:#28a745;color:white;padding:4px 10px;border-radius:4px;font-weight:bold;'>
                     Confirmada
@@ -117,6 +129,8 @@ function enviarCorreoConNota($r, $asunto, $texto, $libre = false) {
             </p>
         </div>";
     }
+
+    $site_name_safe = htmlspecialchars(SITE_NAME, ENT_QUOTES, 'UTF-8');
 
     $body = "
 <!DOCTYPE html>
@@ -139,10 +153,10 @@ function enviarCorreoConNota($r, $asunto, $texto, $libre = false) {
 <div class='container'>
     <div class='header'>
         <h1>Reserva Confirmada</h1>
-        <p>" . SITE_NAME . "</p>
+        <p>$site_name_safe</p>
     </div>
     <div class='content'>
-        <h2>Hola {$r['nombre']}!</h2>
+        <h2>Hola $nombre_safe!</h2>
         <p>Tu reserva ha sido confirmada. Favor de presentarse 10 minutos antes de la hora acordada.</p>
 
         $bloque_reserva
@@ -153,7 +167,7 @@ function enviarCorreoConNota($r, $asunto, $texto, $libre = false) {
         </div>
 
         <p style='margin-top:30px;font-size:12px;color:#666;'>
-            Este es un correo automatico. Para cambios en tu reserva, contactanos.
+            Este es un correo automático. Para cambios en tu reserva, contáctanos.
         </p>
     </div>
 </div>
@@ -165,7 +179,7 @@ function enviarCorreoConNota($r, $asunto, $texto, $libre = false) {
     $headers .= "From: " . ADMIN_EMAIL . "\r\n";
     $headers .= "Reply-To: " . ADMIN_EMAIL . "\r\n";
 
-    return mail($r['email'], htmlspecialchars($asunto, ENT_QUOTES), $body, $headers);
+    return mail($r['email'], $asunto_safe, $body, $headers);
 }
 
 $sql    = "SELECT id, fecha, hora, nombre, personas, estado, email, telefono
@@ -378,12 +392,12 @@ $conn->close();
             <a href="?filtro=manana" class="filtro-btn <?= $filtro==='manana' ? 'active':'' ?>">Manana</a>
             <a href="?filtro=semana" class="filtro-btn <?= $filtro==='semana' ? 'active':'' ?>">Esta semana</a>
             <div class="fecha-custom">
-                <input type="date" id="fechaEspecifica" value="<?= htmlspecialchars($fecha_custom) ?>">
+                <input type="date" id="fechaEspecifica" value="<?= h($fecha_custom) ?>">
                 <button class="filtro-btn" onclick="irAFecha()">Buscar</button>
             </div>
         </div>
 
-        <p class="seccion-titulo"><?= $titulo ?> - <?= count($reservas) ?> reserva<?= count($reservas)!==1?'s':'' ?></p>
+        <p class="seccion-titulo"><?= h($titulo) ?> - <?= count($reservas) ?> reserva<?= count($reservas)!==1?'s':'' ?></p>
 
         <?php if (empty($reservas)): ?>
             <div class="reservas-lista">
@@ -398,15 +412,14 @@ $conn->close();
         <?php else: ?>
             <div class="reservas-lista">
                 <?php foreach ($reservas as $r): ?>
-                    <div class="reserva-item" id="item-<?= $r['id'] ?>"
-                         onclick="seleccionar(
-                             <?= $r['id'] ?>,
-                             '<?= htmlspecialchars($r['nombre'],ENT_QUOTES) ?>',
-                             '<?= htmlspecialchars($r['email'],ENT_QUOTES) ?>',
-                             '<?= date('d/m/Y', strtotime($r['fecha'])) ?>',
-                             '<?= substr($r['hora'],0,5) ?> hrs',
-                             '<?= $r['personas'] ?>'
-                         )">
+                    <div class="reserva-item" id="item-<?= (int)$r['id'] ?>"
+                         data-id="<?= (int)$r['id'] ?>"
+                         data-nombre="<?= h($r['nombre']) ?>"
+                         data-email="<?= h($r['email']) ?>"
+                         data-fecha="<?= h(date('d/m/Y', strtotime($r['fecha']))) ?>"
+                         data-hora="<?= h(substr($r['hora'],0,5)) ?> hrs"
+                         data-personas="<?= (int)$r['personas'] ?>"
+                         onclick="seleccionarItem(this)">
                         <div class="reserva-hora"><?= date('g:i A', strtotime($r['hora'])) ?></div>
                         <div class="reserva-info-wrap">
                             <div class="reserva-nombre">
@@ -424,6 +437,7 @@ $conn->close();
             </div>
 
             <form method="POST" id="form-reserva">
+                <?= csrfField() ?>
                 <input type="hidden" name="modo" value="reserva">
                 <input type="hidden" name="reserva_id" id="campo-reserva-id" value="">
 
@@ -484,6 +498,7 @@ $conn->close();
 
     <div id="panel-libre" style="display:none;">
         <form method="POST">
+            <?= csrfField() ?>
             <input type="hidden" name="modo" value="libre">
 
             <div class="libre-panel">
@@ -534,7 +549,16 @@ $conn->close();
 
     let seleccionado = null;
 
-    function seleccionar(id, nombre, email, fecha, hora, personas) {
+    // Reemplaza la función anterior que recibía datos como parámetros de onclick.
+    // Ahora lee los datos desde atributos data-* (seguro contra XSS — Hallazgo A1).
+    function seleccionarItem(el) {
+        const id       = parseInt(el.dataset.id, 10);
+        const nombre   = el.dataset.nombre   || '';
+        const email    = el.dataset.email    || '';
+        const fecha    = el.dataset.fecha    || '';
+        const hora     = el.dataset.hora     || '';
+        const personas = el.dataset.personas || '';
+
         if (seleccionado) {
             document.getElementById('item-' + seleccionado)?.classList.remove('seleccionado');
         }
@@ -550,16 +574,30 @@ $conn->close();
         }
 
         seleccionado = id;
-        document.getElementById('item-' + id).classList.add('seleccionado');
+        el.classList.add('seleccionado');
         document.getElementById('campo-reserva-id').value = id;
         document.getElementById('btn-enviar-reserva').disabled = false;
-        document.getElementById('label-destino').innerHTML = `Enviando a: <strong>${nombre}</strong> &mdash; ${email}`;
+
+        // Usar textContent para datos dinámicos (seguro contra XSS)
+        const labelDestino = document.getElementById('label-destino');
+        labelDestino.textContent = '';
+        const strong = document.createElement('strong');
+        strong.textContent = nombre;
+        labelDestino.append('Enviando a: ', strong, ' — ', email);
+
         document.getElementById('pe-saludo').textContent = `Hola ${nombre}!`;
-        document.getElementById('pe-info-reserva').innerHTML =
-            `<p><strong>ID:</strong> #${id}</p>
-             <p><strong>Fecha:</strong> ${fecha}</p>
-             <p><strong>Hora:</strong> ${hora}</p>
-             <p><strong>Personas:</strong> ${personas}</p>`;
+
+        const infoEl = document.getElementById('pe-info-reserva');
+        infoEl.innerHTML = '';
+        const filas = [['ID', '#' + id], ['Fecha', fecha], ['Hora', hora], ['Personas', personas]];
+        filas.forEach(([lbl, val]) => {
+            const p = document.createElement('p');
+            const b = document.createElement('strong');
+            b.textContent = lbl + ':';
+            p.appendChild(b);
+            p.append(' ' + val);
+            infoEl.appendChild(p);
+        });
     }
 
     function resetInfo() {

@@ -1,13 +1,16 @@
 <?php
-session_start();
+header('Content-Type: application/json; charset=utf-8');
 require_once '../config/config.php';
 
-if (!isset($_SESSION['admin_id'])) {
-    echo json_encode(['penalizada' => false, 'reportes' => 0]);
+requirePermission('reservas.ver');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Método no permitido']);
     exit;
 }
 
-$telefono = trim($_GET['telefono'] ?? '');
+$telefono = normalizarTelefono(trim($_GET['telefono'] ?? ''));
 
 if (empty($telefono)) {
     echo json_encode(['penalizada' => false, 'reportes' => 0]);
